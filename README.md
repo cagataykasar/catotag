@@ -8,7 +8,9 @@ Her etiket, tıklanan andan ayarlanabilir süre öncesi (`− sec`) ve sonrası 
 - Duvar saatine dayalı zamanlayıcı: sekme arka plana alınsa, ekran kilitlense ya da sayfa yenilense bile süre doğru kalır
 - Maç verisi her değişiklikte tarayıcıya otomatik kaydedilir ve açılışta geri yüklenir
 - Maç sırasında ekran açık kalır (Wake Lock, HTTPS gerekir)
-- Son etiketi geri alma (Undo)
+- Etiket başına ayrı ön/arka süre (ayarlanmamışsa varsayılan klip süresi)
+- Basınca titreşim ve "geri al" seçenekli bildirim, eklenen anların listesi ve tek tek silme
+- Etiket setlerini preset olarak kaydetme
 - Telefonda paylaşım menüsüyle, masaüstünde doğrudan indirme ile XML dışa aktarma
 
 ## Çalıştırma

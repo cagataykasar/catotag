@@ -2,12 +2,36 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Global layout to ensure background fills on scroll */
 html, body, #root {
   height: 100%;
 }
 body {
-  min-height: 100%;
-  background: linear-gradient(135deg, #1f2937 0%, #0f172a 100%);
-  background-attachment: fixed;
+  background: #07090d;
+  color: #f4f6fa;
+  -webkit-tap-highlight-color: transparent;
 }
+
+/* Leave room for the mobile bottom tab bar (and the iPhone home indicator) */
+.pb-tabbar {
+  padding-bottom: calc(96px + env(safe-area-inset-bottom));
+}
+.toast-offset {
+  bottom: calc(80px + env(safe-area-inset-bottom));
+}
+@media (min-width: 768px) {
+  .pb-tabbar { padding-bottom: 40px; }
+  .toast-offset { bottom: 24px; }
+}
+
+/* Color inputs rendered as plain rounded swatches */
+input[type="color"] {
+  -webkit-appearance: none;
+  appearance: none;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+input[type="color"]::-webkit-color-swatch { border: none; border-radius: 10px; }
+input[type="color"]::-moz-color-swatch { border: none; border-radius: 10px; }
