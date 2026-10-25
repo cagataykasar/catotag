@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-const EVENT = "catotag-storage";
+export const STORAGE_EVENT = "catotag-storage";
 
-const read = (key, fallback) => {
+export const readStored = (key, fallback) => {
   try {
     const raw = localStorage.getItem(key);
     return raw === null ? fallback : JSON.parse(raw);
@@ -11,22 +11,34 @@ const read = (key, fallback) => {
   }
 };
 
+// Write (or remove, for undefined) a value and notify every useStoredState / listener of `key`
+export const writeStored = (key, value) => {
+  try {
+    if (value === undefined) {
+      localStorage.removeItem(key);
+    } else {
+      localStorage.setItem(key, JSON.stringify(value));
+    }
+  } catch {}
+  window.dispatchEvent(new CustomEvent(STORAGE_EVENT, { detail: key }));
+};
+
 // localStorage-backed state, kept in sync live between components (and other browser tabs).
 // `normalize` must be a stable (module-level) function.
 export default function useStoredState(key, fallback, normalize = (v) => v) {
-  const [value, setValue] = useState(() => normalize(read(key, fallback)));
+  const [value, setValue] = useState(() => normalize(readStored(key, fallback)));
   const valueRef = useRef(value);
   valueRef.current = value;
 
   useEffect(() => {
     const sync = (e) => {
       const changedKey = e.type === "storage" ? e.key : e.detail;
-      if (changedKey === key) setValue(normalize(read(key, fallback)));
+      if (changedKey === key) setValue(normalize(readStored(key, fallback)));
     };
-    window.addEventListener(EVENT, sync);
+    window.addEventListener(STORAGE_EVENT, sync);
     window.addEventListener("storage", sync);
     return () => {
-      window.removeEventListener(EVENT, sync);
+      window.removeEventListener(STORAGE_EVENT, sync);
       window.removeEventListener("storage", sync);
     };
     // fallback is a literal default; re-subscribing on its identity is not wanted
@@ -38,10 +50,7 @@ export default function useStoredState(key, fallback, normalize = (v) => v) {
       const resolved = typeof next === "function" ? next(valueRef.current) : next;
       valueRef.current = resolved;
       setValue(resolved);
-      try {
-        localStorage.setItem(key, JSON.stringify(resolved));
-      } catch {}
-      window.dispatchEvent(new CustomEvent(EVENT, { detail: key }));
+      writeStored(key, resolved);
     },
     [key]
   );

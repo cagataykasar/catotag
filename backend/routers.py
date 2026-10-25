@@ -1,45 +1,32 @@
-from fastapi import APIRouter, Depends, HTTPException, Header, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 
-from sqlalchemy.orm import Session, aliased, joinedload
-from sqlalchemy import join, select, or_, and_, desc
+from sqlalchemy.orm import Session
 
 from db import get_db
 
-from auth import get_password_hash, get_current_active_user, get_current_admin_user
+from auth import get_password_hash, get_current_active_user, verify_password
 
-from models import(User, Tag)
+from models import User
 
-from pydantic import BaseModel, Field
-from typing import List, Optional
+from pydantic import BaseModel, ConfigDict, Field
+
 
 class UserCreate(BaseModel):
-    username: str = Field(min_length=3, max_length=50)
+    username: str = Field(min_length=3, max_length=50, pattern=r"^[A-Za-z0-9_.-]+$")
     # bcrypt only uses the first 72 bytes of a password
     password: str = Field(min_length=8, max_length=72)
-    email: str = Field(max_length=255)
+    email: str = Field(max_length=255, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 class UserRead(BaseModel):
     user_id: int
     username: str
     email: str
     is_admin: bool
-    
-    class Config:
-        from_attributes = True   # Pydantic v2: use 'from_attributes'
 
-class TagCreate(BaseModel):
-    tag_name: str
+    model_config = ConfigDict(from_attributes=True)
 
-class TagRead(BaseModel):
-    tag_id: int
-    user_id: int
-    tag_name: str
-
-    class Config:
-         from_attributes = True
-
-class TagUpdate(BaseModel):
-    tag_name: Optional[str] = Field(None, max_length=50)
+class PasswordConfirm(BaseModel):
+    password: str = Field(max_length=72)
 
 
 # ROUTERS
@@ -48,17 +35,16 @@ user_router = APIRouter(prefix="/users", tags=["Users"])
 
 @user_router.post("/", response_model=UserRead, status_code=status.HTTP_201_CREATED)
 def create_user(user: UserCreate, db: Session = Depends(get_db)):
-    # Hash the password
-    hashed_pw = get_password_hash(user.password)
-    # Ensure email is unique
-    if db.query(User).filter(User.email == user.email).first():
+    email = user.email.strip().lower()
+    # Ensure email and username are unique
+    if db.query(User).filter(User.email == email).first():
         raise HTTPException(status_code=400, detail="Email already registered")
     if db.query(User).filter(User.username == user.username).first():
         raise HTTPException(status_code=400, detail="Username already taken")
     new_user = User(
         username=user.username,
-        password=hashed_pw,
-        email=user.email,
+        password=get_password_hash(user.password),
+        email=email,
     )
     db.add(new_user)
     db.commit()
@@ -71,31 +57,15 @@ def read_current_user(
 ):
     return current_user
 
-tag_router = APIRouter(prefix="/tags", tags=["tags"])
-
-@tag_router.post("/", response_model=TagRead, status_code=status.HTTP_201_CREATED)
-def create_tag(
-    tag: TagCreate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
-):
-    new_tag = Tag(
-        user_id=current_user.user_id,
-        tag_name=tag.tag_name,
-    )
-    db.add(new_tag)
-    db.commit()
-    db.refresh(new_tag)
-
-    return new_tag
-
-@tag_router.get("/mine",response_model=List[TagRead],status_code=status.HTTP_200_OK)
-def list_my_items(
+@user_router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
+def delete_current_user(
+    body: PasswordConfirm,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    return (
-        db.query(Tag)
-        .filter(Tag.user_id == current_user.user_id)
-        .all()
-    )
+    """Permanently delete the account with all its settings and matches."""
+    if not verify_password(body.password, current_user.password):
+        raise HTTPException(status_code=403, detail="Incorrect password")
+    db.delete(current_user)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -2,18 +2,36 @@
 import React, { useState } from "react";
 import Match from "./pages/Match";
 import Tags from "./pages/Tags";
-import { Card, Logo } from "./components/ui";
-import { MailIcon, StopwatchIcon, TagIcon } from "./components/Icons";
+import Account from "./pages/Account";
+import { Logo } from "./components/ui";
+import { StopwatchIcon, TagIcon, UserIcon } from "./components/Icons";
+import { AUTH_KEY } from "./lib/api";
+import useCloudSync from "./lib/sync";
+import useStoredState from "./lib/useStoredState";
 import "./index.css";
 
 const PAGES = [
   { label: "Match", Icon: StopwatchIcon },
   { label: "Tags", Icon: TagIcon },
-  { label: "Contact", Icon: MailIcon },
+  { label: "Account", Icon: UserIcon },
 ];
+
+// Small sync indicator next to the Account tab (only while signed in)
+const SYNC_DOT = {
+  syncing: "bg-amber-400",
+  offline: "bg-amber-400",
+  error: "bg-red-400",
+  synced: "bg-emerald-400",
+};
 
 function App() {
   const [active, setActive] = useState(0);
+  const [auth] = useStoredState(AUTH_KEY, null);
+  const sync = useCloudSync(auth?.username || null);
+  const syncDot = auth ? SYNC_DOT[sync.status] : null;
+
+  const Dot = ({ className = "" }) =>
+    syncDot ? <span className={`w-2 h-2 rounded-full ${syncDot} ${className}`} aria-hidden="true" /> : null;
 
   return (
     <div className="min-h-full flex flex-col">
@@ -26,11 +44,12 @@ function App() {
               key={label}
               onClick={() => setActive(i)}
               aria-current={active === i ? "page" : undefined}
-              className={`px-4 py-2 rounded-lg text-sm font-semibold transition ${
+              className={`relative px-4 py-2 rounded-lg text-sm font-semibold transition ${
                 active === i ? "bg-ink-700 text-white" : "text-ink-400 hover:text-white"
               }`}
             >
               {label}
+              {label === "Account" && <Dot className="absolute top-1.5 right-1.5" />}
             </button>
           ))}
         </nav>
@@ -40,16 +59,7 @@ function App() {
         {/* Pages stay mounted so switching tabs never resets a running match */}
         <div hidden={active !== 0}><Match /></div>
         <div hidden={active !== 1}><Tags /></div>
-        {active === 2 && (
-          <div className="max-w-3xl mx-auto px-4 py-6">
-            <Card title="Contact" description="Questions, bugs or feature ideas are welcome.">
-              <a href="mailto:cagataykasar@gmail.com" className="inline-flex items-center gap-2 text-accent font-semibold">
-                <MailIcon className="w-5 h-5" />
-                cagataykasar@gmail.com
-              </a>
-            </Card>
-          </div>
-        )}
+        {active === 2 && <Account auth={auth} sync={sync} />}
       </main>
 
       {/* Mobile: thumb-reachable bottom tab bar */}
@@ -62,12 +72,13 @@ function App() {
             key={label}
             onClick={() => setActive(i)}
             aria-current={active === i ? "page" : undefined}
-            className={`flex flex-col items-center gap-1 pt-2.5 pb-2 text-[11px] font-semibold ${
+            className={`relative flex flex-col items-center gap-1 pt-2.5 pb-2 text-[11px] font-semibold ${
               active === i ? "text-accent" : "text-ink-400"
             }`}
           >
             <Icon className="w-6 h-6" />
             {label}
+            {label === "Account" && <Dot className="absolute top-2 left-1/2 ml-2.5" />}
           </button>
         ))}
       </nav>

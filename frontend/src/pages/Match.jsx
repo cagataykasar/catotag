@@ -11,10 +11,12 @@ import {
   normalizeTags,
 } from "../lib/tags";
 import { DEFAULT_LAYOUT, LAYOUT_KEY, gridArea, normalizeLayout, resolveLayout } from "../lib/layout";
+import { MATCH_KEY, newMatchId } from "../lib/sync";
+import { STORAGE_EVENT } from "../lib/useStoredState";
+import { buildFileName, exportXml } from "../lib/xml";
 import { inputClass } from "../components/ui";
 import { DownloadIcon, PauseIcon, PlayIcon, ResetIcon, XIcon } from "../components/Icons";
 
-const MATCH_KEY = "catotag.match";
 const LOG_PREVIEW = 8;
 
 // Restore the in-progress match (tags, clock, teams) saved on every change
@@ -24,80 +26,18 @@ const loadMatch = () => {
     if (!m || typeof m !== "object") return null;
     const instances = Array.isArray(m.instances) ? m.instances : [];
     return {
+      id: typeof m.id === "string" ? m.id : newMatchId(),
       // uid is the internal identity; older saves only had ID
       instances: instances.map((inst, i) => ({ ...inst, uid: inst.uid ?? inst.ID ?? i })),
       teamA: m.teamA || "",
       teamB: m.teamB || "",
       accumulatedMs: Number(m.accumulatedMs) || 0,
       startedAt: Number(m.startedAt) || null,
+      createdAt: m.createdAt || new Date().toISOString(),
     };
   } catch {
     return null;
   }
-};
-
-// Helper to safely encode text for XML
-const escapeXml = (str) =>
-  str.replace(/[<>&"']/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;", "'": "&apos;" }[c]));
-
-// Build the XML string in the exact schema the editing software imports; IDs are sequential
-const generateXmlFromInstances = (instancesList) => {
-  let xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
-  xml += "<file>\n";
-  xml += "  <SORT_INFO>\n";
-  xml += "    <sort_type>sort order</sort_type>\n";
-  xml += "  </SORT_INFO>\n";
-  xml += "  <ALL_INSTANCES>\n";
-
-  instancesList.forEach((inst, id) => {
-    const code = escapeXml((inst.code ?? "").toString().toUpperCase());
-    const start = Number(inst.start ?? 0).toFixed(3);
-    const end = Number(inst.end ?? 0).toFixed(3);
-    const labelText = escapeXml((inst.label?.text ?? inst.code ?? "").toString().toUpperCase());
-
-    xml += "    <instance>\n";
-    xml += `      <ID>${id}</ID>\n`;
-    xml += `      <code>${code}</code>\n`;
-    xml += `      <start>${start}</start>\n`;
-    xml += `      <end>${end}</end>\n`;
-    xml += "      <label>\n";
-    xml += "        <group>Event</group>\n";
-    xml += `        <text>${labelText}</text>\n`;
-    xml += "      </label>\n";
-    xml += "    </instance>\n";
-  });
-
-  xml += "  </ALL_INSTANCES>\n";
-  xml += "</file>";
-  return xml;
-};
-
-const downloadText = (filename, text, mime = "application/xml;charset=utf-8") => {
-  try {
-    const blob = new Blob([text], { type: mime });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.style.display = "none";
-    a.href = url;
-    a.setAttribute("download", filename);
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    // Revoking immediately cancels the download on iOS Safari and some Android browsers
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-// Filesystem-safe name (quotes and slashes break downloads on Android/Windows)
-const buildFileName = (teamA, teamB) => {
-  const clean = (s, fallback) =>
-    (s.trim() || fallback).toUpperCase().replace(/[^\p{L}\p{N}]+/gu, "_").replace(/^_+|_+$/g, "") || fallback;
-  const d = new Date();
-  const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  return `${clean(teamA, "TEAM_A")}_vs_${clean(teamB, "TEAM_B")}_${date}.xml`;
 };
 
 const timeRange = (inst) => `${formatTime(inst.start * 1000)} – ${formatTime(inst.end * 1000)}`;
@@ -107,6 +47,8 @@ const Match = () => {
   const [tagTypes] = useStoredState(TAGS_KEY, [], normalizeTags);
   const [defaults] = useStoredState(DEFAULTS_KEY, DEFAULT_WINDOW, normalizeDefaults);
   const [layout] = useStoredState(LAYOUT_KEY, DEFAULT_LAYOUT, normalizeLayout);
+  const [matchId, setMatchId] = useState(() => saved?.id || newMatchId());
+  const [createdAt, setCreatedAt] = useState(() => saved?.createdAt || new Date().toISOString());
   const [instances, setInstances] = useState(saved?.instances || []); // schema-aligned entries
   const nextUidRef = useRef((saved?.instances || []).reduce((m, i) => Math.max(m, Number(i.uid) || 0), -1) + 1);
   const [teamA, setTeamA] = useState(saved?.teamA || "");
@@ -158,6 +100,9 @@ const Match = () => {
     const ok = window.confirm("Start a new match? All tagged moments and the timer will be cleared.");
     if (!ok) return;
     resetTimer();
+    // The finished match keeps its id in the cloud backup; this one starts fresh
+    setMatchId(newMatchId());
+    setCreatedAt(new Date().toISOString());
     setInstances([]);
     setTeamA("");
     setTeamB("");
@@ -207,13 +152,15 @@ const Match = () => {
     try {
       localStorage.setItem(
         MATCH_KEY,
-        JSON.stringify({ v: 2, instances, teamA, teamB, accumulatedMs, startedAt })
+        JSON.stringify({ v: 2, id: matchId, createdAt, instances, teamA, teamB, accumulatedMs, startedAt })
       );
       setSaveFailed(false);
     } catch {
       setSaveFailed(true);
     }
-  }, [instances, teamA, teamB, accumulatedMs, startedAt]);
+    // Lets the cloud sync pick up the change
+    window.dispatchEvent(new CustomEvent(STORAGE_EVENT, { detail: MATCH_KEY }));
+  }, [matchId, createdAt, instances, teamA, teamB, accumulatedMs, startedAt]);
 
   useEffect(() => {
     if (!toast) return;
@@ -269,26 +216,7 @@ const Match = () => {
     });
   };
 
-  const handleDownloadXml = async () => {
-    const text = generateXmlFromInstances(instances);
-    const filename = buildFileName(teamA, teamB);
-    // On phones prefer the native share sheet (Files, Drive, mail...) when the browser accepts the file
-    const isTouch = window.matchMedia?.("(pointer: coarse)").matches;
-    if (isTouch && navigator.canShare) {
-      try {
-        const file = new File([text], filename, { type: "application/xml" });
-        if (navigator.canShare({ files: [file] })) {
-          await navigator.share({ files: [file], title: filename });
-          return;
-        }
-      } catch (err) {
-        if (err?.name === "AbortError") return; // user closed the share sheet
-      }
-    }
-    if (!downloadText(filename, text)) {
-      window.alert("Download failed. If you opened this inside another app (WhatsApp, Instagram...), open it in Safari/Chrome instead.");
-    }
-  };
+  const handleDownloadXml = () => exportXml(instances, teamA, teamB);
 
   // Tag buttons placed on the grid designed in the Tags page
   const buttons = resolveLayout(tagTypes, layout.cols);

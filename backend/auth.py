@@ -1,9 +1,10 @@
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import bcrypt
 import jwt
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jwt import InvalidTokenError
 from sqlalchemy.orm import Session
@@ -15,6 +16,10 @@ from pydantic import BaseModel
 
 # --- Configuration ---
 ALGORITHM = "HS256"
+
+# Login throttling: after this many failures for one IP + username, refuse for the window
+MAX_FAILED_LOGINS = 5
+FAILED_LOGIN_WINDOW_SECONDS = 15 * 60
 
 # --- Password hashing ---
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/token")
@@ -29,9 +34,15 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 def get_password_hash(password: str) -> str:
     return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
+# Checked against when the username does not exist, so response time does not reveal valid usernames
+_DUMMY_HASH = get_password_hash("catotag-dummy-password")
+
 def authenticate_user(db: Session, username: str, password: str) -> Optional[User]:
     user = db.query(User).filter(User.username == username).first()
-    if not user or not verify_password(password, user.password):
+    if not user:
+        verify_password(password, _DUMMY_HASH)
+        return None
+    if not verify_password(password, user.password):
         return None
     return user
 
@@ -40,6 +51,20 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+
+# In-memory (per process) record of recent failed logins: key -> timestamps
+_failed_logins: dict = {}
+
+def _login_key(request: Request, username: str) -> str:
+    host = request.client.host if request.client else "unknown"
+    return f"{host}:{username.lower()}"
+
+def _recent_failures(key: str) -> list:
+    now = time.monotonic()
+    recent = [t for t in _failed_logins.get(key, []) if now - t < FAILED_LOGIN_WINDOW_SECONDS]
+    _failed_logins[key] = recent
+    return recent
 
 
 # --- Token schemas ---
@@ -52,16 +77,25 @@ router = APIRouter(tags=["Auth"], prefix="/api")
 
 @router.post("/token", response_model=Token)
 async def login_for_access_token(
+    request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db)
 ):
+    key = _login_key(request, form_data.username)
+    if len(_recent_failures(key)) >= MAX_FAILED_LOGINS:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many failed attempts. Try again in 15 minutes.",
+        )
     user = authenticate_user(db, form_data.username, form_data.password)
     if not user:
+        _failed_logins[key].append(time.monotonic())
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    _failed_logins.pop(key, None)
     access_token = create_access_token(data={"sub": user.username})
     return {"access_token": access_token, "token_type": "bearer"}
 
