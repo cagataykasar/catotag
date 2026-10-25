@@ -10,6 +10,7 @@ import {
   normalizeDefaults,
   normalizeTags,
 } from "../lib/tags";
+import { DEFAULT_LAYOUT, LAYOUT_KEY, gridArea, normalizeLayout, resolveLayout } from "../lib/layout";
 import { inputClass } from "../components/ui";
 import { DownloadIcon, PauseIcon, PlayIcon, ResetIcon, XIcon } from "../components/Icons";
 
@@ -105,6 +106,7 @@ const Match = () => {
   const [saved] = useState(loadMatch);
   const [tagTypes] = useStoredState(TAGS_KEY, [], normalizeTags);
   const [defaults] = useStoredState(DEFAULTS_KEY, DEFAULT_WINDOW, normalizeDefaults);
+  const [layout] = useStoredState(LAYOUT_KEY, DEFAULT_LAYOUT, normalizeLayout);
   const [instances, setInstances] = useState(saved?.instances || []); // schema-aligned entries
   const nextUidRef = useRef((saved?.instances || []).reduce((m, i) => Math.max(m, Number(i.uid) || 0), -1) + 1);
   const [teamA, setTeamA] = useState(saved?.teamA || "");
@@ -288,12 +290,8 @@ const Match = () => {
     }
   };
 
-  // Tag buttons, grouped by group number
-  const tagGroupNumbers = [...new Set(tagTypes.map((t) => t.group || 1))].sort((a, b) => a - b);
-  const tagGroups = tagGroupNumbers.map((group) => ({
-    group,
-    tags: tagTypes.filter((t) => (t.group || 1) === group),
-  }));
+  // Tag buttons placed on the grid designed in the Tags page
+  const buttons = resolveLayout(tagTypes, layout.cols);
 
   // Timeline calculations with dynamic duration
   const nowSec = elapsedMs / 1000;
@@ -379,37 +377,37 @@ const Match = () => {
             <p className="text-ink-400 mt-1">Add tags like “Goal” or “Offside” in the Tags tab.</p>
           </div>
         ) : (
-          <div className="space-y-5">
-            {tagGroups.map(({ group, tags }) => (
-              <section key={group}>
-                {tagGroups.length > 1 && (
-                  <h3 className="mb-2 text-xs font-bold uppercase tracking-widest text-ink-400">Group {group}</h3>
-                )}
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-                  {tags.map((t) => {
-                    const { pre, post } = clipWindow(t, defaults);
-                    const flashing = flash.name === t.name;
-                    return (
-                      <button
-                        key={flashing ? `${t.name}-${flash.n}` : t.name}
-                        onClick={() => handleTagClick(t)}
-                        className={`touch-manipulation select-none min-h-[84px] sm:min-h-[96px] rounded-2xl px-3 py-3 flex flex-col items-center justify-center text-center shadow-lg shadow-black/40 active:scale-[0.96] transition-transform ${
-                          flashing ? "animate-flash" : ""
-                        }`}
-                        style={{ backgroundColor: t.color, color: getTextColor(t.color) }}
-                      >
-                        <span className="text-base sm:text-lg font-extrabold uppercase leading-tight tracking-wide break-words">
-                          {t.name}
-                        </span>
-                        <span className="mt-1 text-[11px] font-semibold opacity-70 tabular-nums">
-                          −{pre}s / +{post}s
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </section>
-            ))}
+          <div
+            className="grid gap-2 sm:gap-3 auto-rows-[76px] sm:auto-rows-[92px]"
+            style={{ gridTemplateColumns: `repeat(${layout.cols}, minmax(0, 1fr))` }}
+          >
+            {buttons.map((item) => {
+              const { tag: t } = item;
+              const { pre, post } = clipWindow(t, defaults);
+              const flashing = flash.name === t.name;
+              const big = item.w * item.h >= 4;
+              return (
+                <button
+                  key={flashing ? `${t.name}-${flash.n}` : t.name}
+                  onClick={() => handleTagClick(t)}
+                  className={`touch-manipulation select-none min-w-0 rounded-2xl px-2 py-2 flex flex-col items-center justify-center text-center shadow-lg shadow-black/40 active:scale-[0.96] transition-transform ${
+                    flashing ? "animate-flash" : ""
+                  }`}
+                  style={{ ...gridArea(item), backgroundColor: t.color, color: getTextColor(t.color) }}
+                >
+                  <span
+                    className={`font-extrabold uppercase leading-tight tracking-wide break-words line-clamp-3 ${
+                      big ? "text-xl sm:text-3xl" : layout.cols >= 5 ? "text-xs sm:text-base" : "text-sm sm:text-lg"
+                    }`}
+                  >
+                    {t.name}
+                  </span>
+                  <span className="mt-1 text-[10px] sm:text-[11px] font-semibold opacity-70 tabular-nums">
+                    −{pre}s / +{post}s
+                  </span>
+                </button>
+              );
+            })}
           </div>
         )}
 

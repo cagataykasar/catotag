@@ -12,8 +12,10 @@ import {
   normalizeTags,
   optionalSeconds,
 } from "../lib/tags";
+import { DEFAULT_LAYOUT, LAYOUT_KEY, normalizeLayout } from "../lib/layout";
 import { Card, MiniField, inputClass, miniInputClass } from "../components/ui";
 import { XIcon } from "../components/Icons";
+import LayoutEditor from "../components/LayoutEditor";
 
 const SWATCHES = [
   "#ef4444", "#f97316", "#f59e0b", "#eab308", "#22c55e", "#10b981",
@@ -53,6 +55,7 @@ const Tags = () => {
   const [tags, setTags] = useStoredState(TAGS_KEY, [], normalizeTags);
   const [defaults, setDefaults] = useStoredState(DEFAULTS_KEY, DEFAULT_WINDOW, normalizeDefaults);
   const [presets, setPresets] = useStoredState(PRESETS_KEY, [], normalizePresets);
+  const [layout, setLayout] = useStoredState(LAYOUT_KEY, DEFAULT_LAYOUT, normalizeLayout);
 
   const [newTag, setNewTag] = useState("");
   const [color, setColor] = useState(SWATCHES[0]);
@@ -81,13 +84,18 @@ const Tags = () => {
   const savePreset = () => {
     const name = presetName.trim();
     if (!name || tags.length === 0) return;
-    setPresets([...presets.filter((p) => p.name.toLowerCase() !== name.toLowerCase()), { name, tags }]);
+    // A preset stores the tags with their button positions plus the column count
+    setPresets([
+      ...presets.filter((p) => p.name.toLowerCase() !== name.toLowerCase()),
+      { name, tags, cols: layout.cols },
+    ]);
     setPresetName("");
   };
 
   const applyPreset = (preset) => {
-    if (tags.length > 0 && !window.confirm(`Replace your current ${tags.length} tags with “${preset.name}”?`)) return;
+    if (tags.length > 0 && !window.confirm(`Replace your current ${tags.length} tags and layout with “${preset.name}”?`)) return;
     setTags(normalizeTags(preset.tags));
+    if (preset.cols) setLayout(normalizeLayout({ cols: preset.cols }));
   };
 
   const deletePreset = (preset) => {
@@ -150,6 +158,17 @@ const Tags = () => {
         </div>
         {error && <p className="text-sm text-red-300">{error}</p>}
       </Card>
+
+      {tags.length > 0 && (
+        <Card title="Layout" description="Arrange the buttons as they appear on the Match screen. Saved with your presets.">
+          <LayoutEditor
+            tags={tags}
+            cols={layout.cols}
+            onChangeTags={setTags}
+            onChangeCols={(cols) => setLayout(normalizeLayout({ cols }))}
+          />
+        </Card>
+      )}
 
       <Card
         title={`Your tags (${tags.length})`}
@@ -234,7 +253,7 @@ const Tags = () => {
         </div>
       </Card>
 
-      <Card title="Presets" description="Save the current tag set and switch between setups (e.g. per team or competition).">
+      <Card title="Presets" description="Save the current tags and button layout, then switch between setups (e.g. per team or competition).">
         <div className="flex gap-2">
           <input
             value={presetName}
@@ -258,7 +277,12 @@ const Tags = () => {
             {presets.map((p) => (
               <li key={p.name} className="rounded-xl bg-ink-800 border border-ink-700 p-3 space-y-2">
                 <div className="flex items-center gap-2">
-                  <span className="flex-1 min-w-0 truncate font-bold">{p.name}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="truncate font-bold">{p.name}</div>
+                    <div className="text-xs text-ink-400">
+                      {(p.tags || []).length} tags{p.cols ? ` · ${p.cols} columns` : ""}
+                    </div>
+                  </div>
                   <button
                     onClick={() => applyPreset(p)}
                     className="h-9 px-4 rounded-lg bg-accent text-ink-950 text-sm font-bold hover:brightness-110"
