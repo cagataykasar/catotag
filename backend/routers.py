@@ -9,13 +9,14 @@ from auth import get_password_hash, get_current_active_user, get_current_admin_u
 
 from models import(User, Tag)
 
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, Field
 from typing import List, Optional
 
 class UserCreate(BaseModel):
-    username: str
-    password: str
-    email: str
+    username: str = Field(min_length=3, max_length=50)
+    # bcrypt only uses the first 72 bytes of a password
+    password: str = Field(min_length=8, max_length=72)
+    email: str = Field(max_length=255)
 
 class UserRead(BaseModel):
     user_id: int
@@ -32,7 +33,6 @@ class TagCreate(BaseModel):
 class TagRead(BaseModel):
     tag_id: int
     user_id: int
-    user_name: str          # seller username
     tag_name: str
 
     class Config:
@@ -40,9 +40,6 @@ class TagRead(BaseModel):
 
 class TagUpdate(BaseModel):
     tag_name: Optional[str] = Field(None, max_length=50)
-
-    class Config:
-        orm_mode = True
 
 
 # ROUTERS
@@ -56,6 +53,8 @@ def create_user(user: UserCreate, db: Session = Depends(get_db)):
     # Ensure email is unique
     if db.query(User).filter(User.email == user.email).first():
         raise HTTPException(status_code=400, detail="Email already registered")
+    if db.query(User).filter(User.username == user.username).first():
+        raise HTTPException(status_code=400, detail="Username already taken")
     new_user = User(
         username=user.username,
         password=hashed_pw,
@@ -78,9 +77,9 @@ tag_router = APIRouter(prefix="/tags", tags=["tags"])
 def create_tag(
     tag: TagCreate,
     db: Session = Depends(get_db),
-    current_user: int = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_active_user)
 ):
-    new_tag = tag(
+    new_tag = Tag(
         user_id=current_user.user_id,
         tag_name=tag.tag_name,
     )

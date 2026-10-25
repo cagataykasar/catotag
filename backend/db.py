@@ -1,17 +1,15 @@
 # db.py
-import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 from typing import Generator
 
-# pull your DATABASE_URL from env (or default)
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql+psycopg2://postgres:password@localhost:5432/catotag"
-)
+from config import DATABASE_URL, SQL_ECHO
+
+# SQLite needs this to be used from FastAPI's worker threads
+connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
 
 # SQLAlchemy engine and session factory
-engine = create_engine(DATABASE_URL, echo=True)
+engine = create_engine(DATABASE_URL, echo=SQL_ECHO, connect_args=connect_args)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 # Base class for ORM models
