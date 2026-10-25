@@ -15,10 +15,19 @@ if not SECRET_KEY:
 
 BASE_DIR = Path(__file__).resolve().parent
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./catotag.db")
-# Relative SQLite paths are resolved against backend/, not the directory uvicorn was started from
-if DATABASE_URL.startswith("sqlite:///./"):
-    DATABASE_URL = f"sqlite:///{BASE_DIR / DATABASE_URL[len('sqlite:///./'):]}"
+def normalize_database_url(url: str) -> str:
+    # Hosting providers (Neon, Render, Heroku) hand out postgres:// or postgresql:// URLs;
+    # SQLAlchemy needs the driver named explicitly to use psycopg 3
+    for prefix in ("postgres://", "postgresql://"):
+        if url.startswith(prefix):
+            return "postgresql+psycopg://" + url[len(prefix):]
+    # Relative SQLite paths are resolved against backend/, not the directory uvicorn was started from
+    if url.startswith("sqlite:///./"):
+        return f"sqlite:///{BASE_DIR / url[len('sqlite:///./'):]}"
+    return url
+
+
+DATABASE_URL = normalize_database_url(os.getenv("DATABASE_URL", "sqlite:///./catotag.db"))
 SQL_ECHO = os.getenv("SQL_ECHO", "false").lower() == "true"
 
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440"))

@@ -1,0 +1,30 @@
+# Render Blueprint for the catotag backend (https://render.com/docs/blueprint-spec).
+# The frontend is deployed separately (see README, "Deployment").
+services:
+  - type: web
+    name: catotag-api
+    runtime: python
+    rootDir: backend
+    plan: free
+    region: frankfurt
+    buildCommand: pip install -r requirements.txt
+    # Render terminates HTTPS in front of the app; trust its forwarded headers so the
+    # client IP used for sign-in throttling is the real one
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips "*"
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12"
+      - key: SECRET_KEY
+        generateValue: true
+      # PostgreSQL connection URL from Neon (or any provider); entered in the dashboard
+      - key: DATABASE_URL
+        sync: false
+      # Production frontend address, e.g. https://catotag.vercel.app
+      - key: CORS_ORIGINS
+        sync: false
+      - key: ENABLE_DOCS
+        value: "false"
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "1440"

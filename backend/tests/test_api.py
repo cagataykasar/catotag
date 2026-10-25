@@ -5,19 +5,36 @@ from pathlib import Path
 
 import pytest
 
-# Isolated config before the app is imported (real env vars win over backend/.env)
+# Isolated config before the app is imported (real env vars win over backend/.env).
+# Set TEST_DATABASE_URL to run against PostgreSQL; that database is wiped, so never point it at real data.
 _db_dir = tempfile.mkdtemp()
 os.environ["SECRET_KEY"] = "test-secret-key-for-pytest-only-0123456789abcdef"
-os.environ["DATABASE_URL"] = f"sqlite:///{_db_dir}/test.db"
+os.environ["DATABASE_URL"] = os.environ.get("TEST_DATABASE_URL") or f"sqlite:///{_db_dir}/test.db"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import jwt  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 import auth  # noqa: E402
+from config import normalize_database_url  # noqa: E402
+from db import Base, engine  # noqa: E402
 from main import app  # noqa: E402
 
+# Start every run from an empty schema
+Base.metadata.drop_all(bind=engine)
+Base.metadata.create_all(bind=engine)
+
 client = TestClient(app)
+
+
+def test_database_url_normalization():
+    assert normalize_database_url("postgres://u:p@h:5432/db") == "postgresql+psycopg://u:p@h:5432/db"
+    assert (
+        normalize_database_url("postgresql://u:p@h/db?sslmode=require")
+        == "postgresql+psycopg://u:p@h/db?sslmode=require"
+    )
+    assert normalize_database_url("postgresql+psycopg://u:p@h/db") == "postgresql+psycopg://u:p@h/db"
+    assert normalize_database_url("sqlite:///./x.db").endswith("/backend/x.db")
 
 MATCH_ID = "0b9d2a52-6c55-4f1b-9b39-5f3c3f9e1a01"
 
